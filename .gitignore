@@ -1,0 +1,10 @@
+.vscode
+.idea
+
+Cargo.lock
+
+# trunk output folder
+dist
+
+# Rust compile target directories:
+target
