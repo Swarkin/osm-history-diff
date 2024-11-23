@@ -1,62 +1,118 @@
+use crate::osm;
 use eframe::egui;
+use eframe::egui::{Align, Layout};
 
-//#[derive(serde::Deserialize, serde::Serialize)]
-//#[serde(default)]
 pub struct TemplateApp {
-	label: String,
-	value: f32,
+	element_id_text: String,
+	element_id: u32,
+	element_type: osm::ElementType,
+	json: serde_json::Value,
+	json_str: String,
+
+	data: Option<osm::ElementHistory>,
 }
 
 impl Default for TemplateApp {
 	fn default() -> Self {
 		Self {
-			label: "Hello World!".to_owned(),
-			value: 2.7,
+			element_id_text: String::from("33538067"),
+			element_id: 33538067,
+			element_type: osm::ElementType::Way,
+			json: serde_json::json!({}),
+			json_str: String::new(),
+			data: None,
 		}
 	}
 }
 
 impl TemplateApp {
 	pub fn new(_cc: &eframe::CreationContext) -> Self {
-		/* if let Some(storage) = cc.storage {
-			return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-		} */
 		Default::default()
 	}
 }
 
 impl eframe::App for TemplateApp {
-	/* fn save(&mut self, storage: &mut dyn eframe::Storage) {
-		eframe::set_value(storage, eframe::APP_KEY, self);
-	} */
-
 	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
 			egui::menu::bar(ui, |ui| {
-				if !cfg!(target_arch = "wasm32") {
-					ui.menu_button("File", |ui| {
-						if ui.button("Quit").clicked() {
-							ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-						}
-					});
-					ui.add_space(16.0);
-				}
-
-				egui::widgets::global_theme_preference_buttons(ui);
+				ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+					egui::widgets::global_theme_preference_buttons(ui);
+				});
 			});
 		});
 
 		egui::CentralPanel::default().show(ctx, |ui| {
-			ui.heading("eframe template");
-
 			ui.horizontal(|ui| {
-				ui.label("Write something: ");
-				ui.text_edit_singleline(&mut self.label);
+				ui.label("OSM Object ID:");
+				ui.text_edit_singleline(&mut self.element_id_text);
+				if let Ok(n) = self.element_id_text.parse::<u32>() {
+					self.element_id = n;
+				}
 			});
 
-			ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
-			if ui.button("Increment").clicked() {
-				self.value += 1.0;
+			if ui.button("Request").clicked() {
+				let resp = ureq::get(format!("https://api.openstreetmap.org/api/0.6/{}/{}/history.json", self.element_type, self.element_id)).call().unwrap();
+				let mut json = resp.into_body().read_json::<serde_json::Value>().unwrap();
+				self.json = json["elements"].take();
+				self.json_str = serde_json::ser::to_string_pretty(&self.json).unwrap();
+
+				let mut history = osm::ElementHistory::new();
+				for entry in self.json.as_array().unwrap() {
+					let entry = entry.as_object().unwrap();
+					history.push(osm::HistoryEntry {
+						r#type: osm::ElementType::Way,
+						version: entry["version"].as_i64().unwrap() as u32,
+						tags: {
+							// convert serde_json::Map to Vec<osm_primitives::Tag>
+							let source_tags = entry["tags"].as_object().unwrap();
+							let mut tags = Vec::<osm_primitives::Tag>::with_capacity(source_tags.len());
+							for (k, v) in source_tags {
+								tags.push(osm_primitives::Tag { key: k.to_owned(), value: v.as_str().unwrap().to_string() });
+							}
+							tags
+						},
+					});
+				}
+
+				self.data = Some(history);
+			}
+
+			ui.collapsing("raw", |ui| {
+				egui::ScrollArea::vertical().show(ui, |ui| {
+					ui.monospace(&self.json_str);
+				});
+			});
+
+			if let Some(history) = &self.data {
+				egui::ScrollArea::both().show(ui, |ui| {
+					ui.with_layout(Layout::left_to_right(Align::LEFT), |ui| {
+						for entry in history {
+							ui.label(entry.version.to_string());
+							let row_height = 8.0;
+							
+							egui::Resize::default().id_salt(entry.version).max_height(row_height * entry.tags.len() as f32).min_width(100.0).show(ui, |ui| {
+								let col_width = ui.available_width() / 2.0;
+								
+								egui::Grid::new(entry.version).num_columns(history.len()).min_col_width(col_width).striped(true).spacing(egui::Vec2::new(0.0, row_height)).show(ui, |ui| {
+									for tag in &entry.tags {
+										ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
+											ui.add_space(3.0);
+											ui.set_max_width(col_width);
+											ui.label(&tag.key);
+										});
+										ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
+											ui.add_space(3.0);
+											ui.set_max_width(col_width);
+											ui.label(&tag.value);
+										});
+
+										ui.end_row();
+									}
+								});
+							});
+						}
+					});
+				});
 			}
 		});
 	}
