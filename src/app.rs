@@ -1,6 +1,7 @@
 use crate::osm;
 use eframe::egui;
 use eframe::egui::{Align, Layout};
+use egui_extras::{Column, TableBuilder};
 
 pub struct TemplateApp {
 	element_id_text: String,
@@ -88,26 +89,37 @@ impl eframe::App for TemplateApp {
 					ui.with_layout(Layout::left_to_right(Align::LEFT), |ui| {
 						for entry in history {
 							ui.label(entry.version.to_string());
-							let row_height = 8.0;
-							
-							egui::Resize::default().id_salt(entry.version).max_height(row_height * entry.tags.len() as f32).min_width(100.0).show(ui, |ui| {
-								let col_width = ui.available_width() / 2.0;
-								
-								egui::Grid::new(entry.version).num_columns(history.len()).min_col_width(col_width).striped(true).spacing(egui::Vec2::new(0.0, row_height)).show(ui, |ui| {
-									for tag in &entry.tags {
-										ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
-											ui.add_space(3.0);
-											ui.set_max_width(col_width);
-											ui.label(&tag.key);
-										});
-										ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
-											ui.add_space(3.0);
-											ui.set_max_width(col_width);
-											ui.label(&tag.value);
-										});
 
-										ui.end_row();
-									}
+							ui.group(|ui| {
+								ui.with_layout(Layout::top_down(Align::TOP), |ui| {
+									ui.push_id(entry.version, |ui| {
+										TableBuilder::new(ui)
+											.striped(true)
+											.resizable(true)
+											.columns(Column::auto().at_least(100.0), 2)
+											.header(25.0, |mut header| {
+												header.col(|ui| {
+													ui.strong("Key");
+												});
+												header.col(|ui| {
+													ui.strong("Value");
+												});
+											})
+											.body(|mut body| {
+												for tag in &entry.tags {
+													body.row(20.0, |mut row| {
+														row.col(|ui| {
+															ui.add_space(4.0);
+															ui.label(&tag.key);
+														});
+														row.col(|ui| {
+															ui.add_space(4.0);
+															ui.label(&tag.value);
+														});
+													});
+												}
+											});
+									});
 								});
 							});
 						}
